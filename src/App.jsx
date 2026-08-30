@@ -5,22 +5,24 @@ import Dashboard from './components/Dashboard';
 import Transactions from './components/Transactions';
 import Customers from './components/Customers';
 import PriceSettings from './components/PriceSettings';
-import { 
-  LayoutDashboard, 
-  ClipboardList, 
-  Users, 
-  Settings, 
-  LogOut, 
-  Sparkles, 
+import {
+  LayoutDashboard,
+  ClipboardList,
+  Users,
+  Settings,
+  LogOut,
+  Sparkles,
   Calendar,
   AlertTriangle,
-  Database
+  Database,
+  Menu
 } from 'lucide-react';
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -165,8 +167,16 @@ export default function App() {
 
   return (
     <div className="app-container">
+      {/* Backdrop untuk mobile overlay */}
+      {mobileNavOpen && (
+        <div
+          className="sidebar-overlay"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      )}
+
       {/* SIDEBAR NAVIGATION */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${mobileNavOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-section">
           <div className="brand-icon">
             <Sparkles size={20} />
@@ -176,21 +186,21 @@ export default function App() {
 
         <ul className="nav-links">
           <li className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`}>
-            <button onClick={() => setActiveTab('dashboard')}>
+            <button onClick={() => { setActiveTab('dashboard'); setMobileNavOpen(false); }}>
               <LayoutDashboard size={18} />
               <span>Dashboard</span>
             </button>
           </li>
-          
+
           <li className={`nav-item ${activeTab === 'transactions' ? 'active' : ''}`}>
-            <button onClick={() => setActiveTab('transactions')}>
+            <button onClick={() => { setActiveTab('transactions'); setMobileNavOpen(false); }}>
               <ClipboardList size={18} />
               <span>Transaksi</span>
             </button>
           </li>
 
           <li className={`nav-item ${activeTab === 'customers' ? 'active' : ''}`}>
-            <button onClick={() => setActiveTab('customers')}>
+            <button onClick={() => { setActiveTab('customers'); setMobileNavOpen(false); }}>
               <Users size={18} />
               <span>Pelanggan</span>
             </button>
@@ -198,7 +208,7 @@ export default function App() {
 
           {userProfile?.role === 'admin' && (
             <li className={`nav-item ${activeTab === 'prices' ? 'active' : ''}`}>
-              <button onClick={() => setActiveTab('prices')}>
+              <button onClick={() => { setActiveTab('prices'); setMobileNavOpen(false); }}>
                 <Settings size={18} />
                 <span>Atur Harga</span>
               </button>
@@ -227,11 +237,14 @@ export default function App() {
       {/* MAIN CONTAINER */}
       <main className="main-content">
         <header className="content-header">
+          <button className="hamburger-btn" onClick={() => setMobileNavOpen(true)}>
+            <Menu size={20} />
+          </button>
           <div className="header-title">
             <h1>{getTabTitle()}</h1>
             <p>Sistem Kasir & Pelacak Laundry Terintegrasi</p>
           </div>
-          
+
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.85rem', backgroundColor: 'var(--bg-card)', padding: '0.5rem 0.85rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
             <Calendar size={14} />
             <span>

@@ -102,7 +102,7 @@ export default function Dashboard({ userProfile, setTab }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+      <div className="dashboard-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
         <div>
           <h2>Halo, {userProfile?.name || 'Kasir'} 👋</h2>
           <p style={{ color: 'var(--text-secondary)' }}>Berikut adalah ringkasan performa laundry hari ini.</p>
@@ -149,7 +149,7 @@ export default function Dashboard({ userProfile, setTab }) {
       {/* Main Grid: Shortcuts & Recent Orders */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem', alignItems: 'start' }} className="grid-cols-1-3">
         {/* Quick Links / Navigation shortcuts */}
-        <div className="card" style={{ gridColumn: 'span 1' }}>
+        <div className="card" style={{ gridColumn: 'span 2' }}>
           <h3 style={{ marginBottom: '1rem', fontSize: '1.1rem' }}>Pintasan Cepat</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <button
