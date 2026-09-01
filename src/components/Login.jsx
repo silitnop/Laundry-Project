@@ -33,7 +33,7 @@ export default function Login({ onLoginSuccess }) {
         });
 
         if (error) throw error;
-        
+
         // Supabase might require email confirmation.
         if (data?.user?.identities?.length === 0) {
           setErrorMsg('Email ini sudah terdaftar. Silakan login.');
@@ -73,7 +73,7 @@ export default function Login({ onLoginSuccess }) {
             <Sparkles size={20} />
           </div>
           <span className="brand-name" style={{ color: 'var(--text-primary)', background: 'none', WebkitTextFillColor: 'initial', fontSize: '1.6rem' }}>
-            Laundria
+            Berkah Laundry
           </span>
         </div>
 
