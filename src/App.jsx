@@ -103,7 +103,7 @@ export default function App() {
           </div>
           <h2 style={{ marginBottom: '1rem' }}>Konfigurasi Supabase Diperlukan</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
-            Aplikasi Laundria membutuhkan database Supabase untuk beroperasi. File `.env` belum dikonfigurasi dengan benar atau nilainya masih kosong.
+            Aplikasi Berkah Laundry membutuhkan database Supabase untuk beroperasi. File `.env` belum dikonfigurasi dengan benar atau nilainya masih kosong.
           </p>
 
           <div style={{ textAlign: 'left', backgroundColor: 'rgba(0,0,0,0.03)', padding: '1.25rem', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', marginBottom: '1.5rem', border: '1px solid var(--border-color)' }}>
@@ -127,7 +127,7 @@ export default function App() {
           </div>
 
           <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            Laundria — Aplikasi Kasir Laundry Premium
+            Berkah Laundry — Aplikasi Kasir Laundry Premium
           </p>
         </div>
       </div>
@@ -161,7 +161,7 @@ export default function App() {
       case 'transactions': return 'Kelola Transaksi';
       case 'customers': return 'Daftar Pelanggan';
       case 'prices': return 'Pengaturan Harga';
-      default: return 'Laundria';
+      default: return 'Berkah Laundry';
     }
   };
 
@@ -181,7 +181,7 @@ export default function App() {
           <div className="brand-icon">
             <Sparkles size={20} />
           </div>
-          <span className="brand-name">Laundria</span>
+          <span className="brand-name">Berkah Laundry</span>
         </div>
 
         <ul className="nav-links">

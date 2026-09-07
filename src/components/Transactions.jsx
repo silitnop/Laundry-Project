@@ -1,19 +1,68 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { printToBluetooth, printToHTML } from '../utils/printReceipt';
-import { Search, Plus, Filter, Calendar, Printer, RefreshCw, CheckCircle, ShieldAlert, FileText, ChevronRight, Check, MapPin, UserPlus } from 'lucide-react';
+import {
+  formatRupiah,
+  getServiceLabel,
+  getServiceDurationLabel,
+  getPackageLabel,
+  getUnitPricePerKg,
+  extractCustomerTier,
+  getCustomerTierLabel,
+  getCustomerTierShortLabel,
+  CUSTOMER_TIERS,
+  SERVICES,
+  PACKAGES,
+  formatLocationDescriptionWithTier,
+  getCleanLocationDescription
+} from '../utils/pricing';
+import {
+  formatWhatsAppPhone,
+  WA_TEMPLATES,
+  openWhatsApp,
+  createWhatsAppUrl
+} from '../utils/whatsapp';
+import {
+  Search,
+  Plus,
+  Filter,
+  Calendar,
+  Printer,
+  RefreshCw,
+  CheckCircle,
+  ShieldAlert,
+  FileText,
+  ChevronRight,
+  Check,
+  MapPin,
+  UserPlus,
+  MessageCircle,
+  Send,
+  Copy,
+  Tag,
+  ExternalLink,
+  Sparkles,
+  Smartphone
+} from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 export default function Transactions({ userProfile }) {
   const [transactions, setTransactions] = useState([]);
   const [customers, setCustomers] = useState([]);
-  const [priceList, setPriceList] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedTx, setSelectedTx] = useState(null);
-  
+
+  // WhatsApp Modal State
+  const [showWaModal, setShowWaModal] = useState(false);
+  const [waTx, setWaTx] = useState(null);
+  const [waPhone, setWaPhone] = useState('');
+  const [waTemplateId, setWaTemplateId] = useState('cucian_selesai');
+  const [waCustomMessage, setWaCustomMessage] = useState('');
+  const [waCopied, setWaCopied] = useState(false);
+
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -23,47 +72,39 @@ export default function Transactions({ userProfile }) {
 
   // New Transaction Form state
   const [customerId, setCustomerId] = useState('');
+  const [customerTier, setCustomerTier] = useState('kedaung');
   const [service, setService] = useState('reguler');
   const [pkg, setPkg] = useState('cuci_setrika');
   const [priceMode, setPriceMode] = useState('per_kg');
   const [weight, setWeight] = useState('');
   const [itemDetails, setItemDetails] = useState('');
-  const [unitPrice, setUnitPrice] = useState(0);
+  const [unitPrice, setUnitPrice] = useState(8000);
   const [totalPrice, setTotalPrice] = useState(0);
   const [paymentStatus, setPaymentStatus] = useState('belum_lunas');
-  
+
   // Quick Customer Creation inline
   const [showQuickCustomer, setShowQuickCustomer] = useState(false);
   const [qcName, setQcName] = useState('');
   const [qcPhone, setQcPhone] = useState('');
   const [qcAddress, setQcAddress] = useState('');
+  const [qcTier, setQcTier] = useState('kedaung');
 
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Fetch all transactions, customers and price list
+  // Fetch all transactions and customers
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Price List
-      const { data: prices, error: pricesErr } = await supabase.from('price_list').select('*');
-      if (pricesErr) throw pricesErr;
-      
-      const priceMap = {};
-      prices.forEach(p => {
-        priceMap[p.service] = p;
-      });
-      setPriceList(priceMap);
-
-      // 2. Fetch Customers
+      // 1. Fetch Customers
       const { data: custs, error: custsErr } = await supabase
         .from('customers')
-        .select('id, name, phone, address')
+        .select('*')
         .order('name');
       if (custsErr) throw custsErr;
       setCustomers(custs || []);
 
-      // 3. Fetch Transactions
+      // 2. Fetch Transactions
       let query = supabase
         .from('transactions')
         .select(`
@@ -86,7 +127,7 @@ export default function Transactions({ userProfile }) {
       }
       if (filterDate) {
         query = query.gte('created_at', `${filterDate}T00:00:00.000Z`)
-                     .lte('created_at', `${filterDate}T23:59:59.999Z`);
+          .lte('created_at', `${filterDate}T23:59:59.999Z`);
       }
 
       const { data: txs, error: txsErr } = await query.order('created_at', { ascending: false });
@@ -105,21 +146,34 @@ export default function Transactions({ userProfile }) {
     fetchData();
   }, [searchQuery, filterStatus, filterPayment, filterService, filterDate]);
 
+  // When customer selection changes, auto-detect tier
+  const handleCustomerSelect = (e) => {
+    const cid = e.target.value;
+    setCustomerId(cid);
+    if (cid) {
+      const selected = customers.find(c => c.id === cid);
+      if (selected) {
+        setCustomerTier(extractCustomerTier(selected));
+      }
+    }
+  };
+
   // Recalculate price when inputs change
   useEffect(() => {
     if (priceMode === 'per_kg') {
-      const basePrice = priceList[service]?.price_per_kg || 0;
-      setUnitPrice(basePrice);
-      const computedTotal = Number(weight || 0) * basePrice;
+      const calculatedUnit = getUnitPricePerKg(service, pkg, customerTier);
+      setUnitPrice(calculatedUnit);
+      const computedTotal = Math.round(Number(weight || 0) * calculatedUnit);
       setTotalPrice(computedTotal);
     } else {
       // For per_satuan, unitPrice is editable and equals totalPrice
       setTotalPrice(Number(unitPrice || 0));
     }
-  }, [service, priceMode, weight, unitPrice, priceList]);
+  }, [service, pkg, customerTier, priceMode, weight, unitPrice]);
 
   const handleOpenAdd = () => {
     setCustomerId('');
+    setCustomerTier('kedaung');
     setService('reguler');
     setPkg('cuci_setrika');
     setPriceMode('per_kg');
@@ -127,6 +181,10 @@ export default function Transactions({ userProfile }) {
     setItemDetails('');
     setPaymentStatus('belum_lunas');
     setShowQuickCustomer(false);
+    setQcName('');
+    setQcPhone('');
+    setQcAddress('');
+    setQcTier('kedaung');
     setErrorMsg('');
     setSuccessMsg('');
     setShowAddModal(true);
@@ -140,26 +198,49 @@ export default function Transactions({ userProfile }) {
     }
 
     try {
-      const { data, error } = await supabase
+      const formattedDesc = formatLocationDescriptionWithTier('', qcTier);
+      const payload = {
+        name: qcName,
+        phone: qcPhone,
+        address: qcAddress,
+        location_description: formattedDesc,
+      };
+
+      let createdCustomer = null;
+
+      // Try with customer_tier column first
+      let res = await supabase
         .from('customers')
-        .insert([{ name: qcName, phone: qcPhone, address: qcAddress }])
+        .insert([{ ...payload, customer_tier: qcTier }])
         .select();
 
-      if (error) throw error;
-      
-      if (data && data[0]) {
-        // Add to list and select
-        setCustomers([data[0], ...customers]);
-        setCustomerId(data[0].id);
+      if (res.error) {
+        // Fallback without customer_tier column
+        const retry = await supabase
+          .from('customers')
+          .insert([payload])
+          .select();
+        if (retry.error) throw retry.error;
+        createdCustomer = retry.data?.[0];
+      } else {
+        createdCustomer = res.data?.[0];
+      }
+
+      if (createdCustomer) {
+        // Add to list, select it, and set tier
+        setCustomers([createdCustomer, ...customers]);
+        setCustomerId(createdCustomer.id);
+        setCustomerTier(qcTier);
         setShowQuickCustomer(false);
         setQcName('');
         setQcPhone('');
         setQcAddress('');
-        setSuccessMsg(`Pelanggan baru ${data[0].name} berhasil dibuat.`);
+        setQcTier('kedaung');
+        setSuccessMsg(`Pelanggan baru ${createdCustomer.name} (${getCustomerTierShortLabel(qcTier)}) berhasil dibuat & dipilih.`);
       }
     } catch (err) {
       console.error('Quick customer failed:', err);
-      setErrorMsg('Gagal membuat pelanggan cepat.');
+      setErrorMsg('Gagal membuat pelanggan cepat: ' + (err.message || err));
     }
   };
 
@@ -183,8 +264,8 @@ export default function Transactions({ userProfile }) {
     setSuccessMsg('');
 
     try {
-      // Calculate estimated completion date
-      const estDays = priceList[service]?.estimation_days || 0;
+      // Calculate estimated completion date based on service
+      const estDays = SERVICES[service]?.durationDays ?? 3;
       const completionDate = new Date();
       completionDate.setDate(completionDate.getDate() + estDays);
 
@@ -208,7 +289,7 @@ export default function Transactions({ userProfile }) {
         .insert([payload])
         .select(`
           *,
-          customers ( id, name, phone, address ),
+          customers ( id, name, phone, address, location_description, latitude, longitude, foto_rumah_url ),
           profiles ( id, name )
         `);
 
@@ -222,7 +303,6 @@ export default function Transactions({ userProfile }) {
         });
         setSuccessMsg(`Transaksi ${data[0].receipt_number} berhasil dibuat!`);
         setShowAddModal(false);
-        // Show success alert and open details of created transaction
         setSelectedTx(data[0]);
         setShowDetailModal(true);
         fetchData();
@@ -246,13 +326,23 @@ export default function Transactions({ userProfile }) {
         .eq('id', txId);
 
       if (error) throw error;
-      
-      setSuccessMsg('Status transaksi berhasil diubah.');
-      
-      // Update local state to avoid full reload
-      setTransactions(transactions.map(t => t.id === txId ? { ...t, status: newStatus } : t));
+
+      // Update local state
+      const updatedList = transactions.map(t => t.id === txId ? { ...t, status: newStatus } : t);
+      setTransactions(updatedList);
+
+      const currentTx = updatedList.find(t => t.id === txId);
       if (selectedTx && selectedTx.id === txId) {
         setSelectedTx({ ...selectedTx, status: newStatus });
+      }
+
+      if (newStatus === 'selesai') {
+        setSuccessMsg('Status diubah ke Selesai! Menyiapkan notifikasi WhatsApp untuk pelanggan...');
+        if (currentTx) {
+          handleOpenWhatsAppModal(currentTx, 'cucian_selesai');
+        }
+      } else {
+        setSuccessMsg('Status transaksi berhasil diubah.');
       }
     } catch (err) {
       console.error('Error updating status:', err);
@@ -282,6 +372,48 @@ export default function Transactions({ userProfile }) {
     }
   };
 
+  // WhatsApp Modal Handlers
+  const handleOpenWhatsAppModal = (tx, templateId = 'cucian_selesai') => {
+    const rawPhone = tx.customers?.phone || '';
+    const template = WA_TEMPLATES.find(t => t.id === templateId) || WA_TEMPLATES[0];
+    const generatedMsg = template.generate(tx);
+
+    setWaTx(tx);
+    setWaPhone(rawPhone);
+    setWaTemplateId(templateId);
+    setWaCustomMessage(generatedMsg);
+    setWaCopied(false);
+    setShowWaModal(true);
+  };
+
+  const handleChangeWaTemplate = (templateId) => {
+    setWaTemplateId(templateId);
+    const template = WA_TEMPLATES.find(t => t.id === templateId);
+    if (template && waTx) {
+      setWaCustomMessage(template.generate(waTx));
+    }
+  };
+
+  const handleSendWhatsApp = () => {
+    if (!waPhone.trim()) {
+      setErrorMsg('Nomor WhatsApp pelanggan belum diisi.');
+      return;
+    }
+    openWhatsApp(waPhone, waCustomMessage);
+    setShowWaModal(false);
+    setSuccessMsg(`Membuka WhatsApp untuk ${waTx?.customers?.name || 'Pelanggan'}...`);
+  };
+
+  const handleCopyWaMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(waCustomMessage);
+      setWaCopied(true);
+      setTimeout(() => setWaCopied(false), 2500);
+    } catch (err) {
+      console.error('Gagal menyalin pesan:', err);
+    }
+  };
+
   const handlePrintBT = async (tx) => {
     setErrorMsg('');
     try {
@@ -290,7 +422,6 @@ export default function Transactions({ userProfile }) {
     } catch (err) {
       console.error('Print bluetooth error:', err);
       setErrorMsg(`Pencetakan bluetooth gagal: ${err.message || err}. Membuka preview cetak browser...`);
-      // Trigger HTML fallback print automatically
       printToHTML(tx);
     }
   };
@@ -299,39 +430,12 @@ export default function Transactions({ userProfile }) {
     printToHTML(tx);
   };
 
-  const formatRupiah = (val) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      minimumFractionDigits: 0,
-    }).format(val);
-  };
-
-  const getServiceLabel = (srv) => {
-    switch (srv) {
-      case 'reguler': return 'Reguler';
-      case 'express': return 'Express';
-      case 'express_kilat': return 'Express Kilat';
-      default: return srv;
-    }
-  };
-
-  const getPackageLabel = (p) => {
-    switch (p) {
-      case 'cuci_setrika': return 'Cuci Setrika';
-      case 'cuci_lipat': return 'Cuci Lipat';
-      case 'setrika_saja': return 'Setrika Saja';
-      case 'cuci_saja': return 'Cuci Saja';
-      default: return p;
-    }
-  };
-
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
         <div>
           <h2>Riwayat Transaksi</h2>
-          <p style={{ color: 'var(--text-secondary)' }}>Mencatat transaksi masuk, mengupdate status pengerjaan, dan mencetak resi kasir.</p>
+          <p style={{ color: 'var(--text-secondary)' }}>Mencatat transaksi masuk, mengupdate status pengerjaan, cetak resi kasir, dan kirim notifikasi WhatsApp.</p>
         </div>
         <button className="btn btn-primary" onClick={handleOpenAdd}>
           <Plus size={16} /> Transaksi Baru
@@ -340,8 +444,8 @@ export default function Transactions({ userProfile }) {
 
       {/* Filters & Search Row */}
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.75rem', marginBottom: '1rem' }} className="grid-cols-1-3">
-          <div style={{ gridColumn: 'span 2', position: 'relative' }}>
+        <div className="search-date-row">
+          <div style={{ position: 'relative' }}>
             <Search size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--text-muted)' }} />
             <input
               type="text"
@@ -352,17 +456,15 @@ export default function Transactions({ userProfile }) {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <div>
-            <div style={{ position: 'relative' }}>
-              <Calendar size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--text-muted)' }} />
-              <input
-                type="date"
-                className="form-control"
-                style={{ paddingLeft: '38px' }}
-                value={filterDate}
-                onChange={(e) => setFilterDate(e.target.value)}
-              />
-            </div>
+          <div style={{ position: 'relative' }}>
+            <Calendar size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--text-muted)' }} />
+            <input
+              type="date"
+              className="form-control"
+              style={{ paddingLeft: '38px' }}
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+            />
           </div>
         </div>
 
@@ -371,7 +473,7 @@ export default function Transactions({ userProfile }) {
             <option value="">Semua Status Cucian</option>
             <option value="belum_diproses">Belum Diproses</option>
             <option value="diproses">Sedang Diproses</option>
-            <option value="selesai">Selesai</option>
+            <option value="selesai">Selesai (Siap Diambil)</option>
             <option value="sudah_diambil">Sudah Diambil</option>
           </select>
 
@@ -383,9 +485,9 @@ export default function Transactions({ userProfile }) {
 
           <select className="form-control" value={filterService} onChange={(e) => setFilterService(e.target.value)}>
             <option value="">Semua Jenis Layanan</option>
-            <option value="reguler">Reguler</option>
-            <option value="express">Express</option>
-            <option value="express_kilat">Express Kilat</option>
+            <option value="reguler">Reguler (3-4 Hari)</option>
+            <option value="express">Express (1 Hari)</option>
+            <option value="express_kilat">Express Kilat (&lt; 1 Hari)</option>
           </select>
 
           <button
@@ -455,12 +557,17 @@ export default function Transactions({ userProfile }) {
                     <td>
                       {new Date(tx.created_at).toLocaleDateString('id-ID', { dateStyle: 'short' })}
                     </td>
-                    <td>{tx.customers?.name || 'Umum'}</td>
+                    <td>
+                      <div style={{ fontWeight: '600' }}>{tx.customers?.name || 'Umum'}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {tx.customers?.phone || '-'}
+                      </div>
+                    </td>
                     <td style={{ textTransform: 'capitalize' }}>
                       <span className="badge badge-primary">{getServiceLabel(tx.service)}</span>
                     </td>
                     <td>{getPackageLabel(tx.package)}</td>
-                    <td style={{ fontWeight: '600' }}>{formatRupiah(tx.total_price)}</td>
+                    <td style={{ fontWeight: '700' }}>{formatRupiah(tx.total_price)}</td>
                     <td>
                       {tx.status === 'belum_diproses' && <span className="badge badge-danger">Belum Diproses</span>}
                       {tx.status === 'diproses' && <span className="badge badge-warning">Diproses</span>}
@@ -473,7 +580,16 @@ export default function Transactions({ userProfile }) {
                       </span>
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end' }}>
+                      <div style={{ display: 'flex', gap: '0.35rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        {/* WhatsApp Button */}
+                        <button
+                          onClick={() => handleOpenWhatsAppModal(tx, tx.status === 'selesai' ? 'cucian_selesai' : 'konfirmasi_nota')}
+                          className="btn-whatsapp-icon"
+                          title="Kirim Notifikasi WhatsApp ke Pelanggan"
+                        >
+                          <MessageCircle size={14} />
+                        </button>
+
                         <button
                           onClick={() => {
                             setSelectedTx(tx);
@@ -505,7 +621,7 @@ export default function Transactions({ userProfile }) {
       {/* 1. NEW TRANSACTION MODAL */}
       {showAddModal && (
         <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '600px' }}>
+          <div className="modal-content" style={{ maxWidth: '640px' }}>
             <div className="modal-header">
               <h3>Buat Transaksi Laundry Baru</h3>
               <button
@@ -517,44 +633,74 @@ export default function Transactions({ userProfile }) {
             </div>
 
             {showQuickCustomer ? (
-              // Inline customer registration
-              <form onSubmit={handleQuickCustomerCreate} style={{ padding: '1rem', border: '1px dashed var(--primary)', borderRadius: 'var(--radius-sm)', marginBottom: '1.5rem' }}>
-                <h4 style={{ marginBottom: '1rem', color: 'var(--primary)' }}>Tambah Pelanggan Cepat</h4>
-                <div className="form-group">
-                  <label className="form-label">Nama Pelanggan *</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    placeholder="Nama lengkap"
-                    value={qcName}
-                    onChange={(e) => setQcName(e.target.value)}
-                    required
-                  />
-                </div>
+              // Inline customer registration with tier selector
+              <form onSubmit={handleQuickCustomerCreate} style={{ padding: '1rem', border: '1px dashed var(--primary)', borderRadius: 'var(--radius-sm)', marginBottom: '1.5rem', backgroundColor: 'var(--primary-glow)' }}>
+                <h4 style={{ marginBottom: '1rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <UserPlus size={16} /> Tambah Pelanggan Cepat
+                </h4>
                 <div className="form-row">
                   <div className="form-group">
-                    <label className="form-label">Nomor HP</label>
+                    <label className="form-label">Nama Pelanggan *</label>
                     <input
                       type="text"
                       className="form-control"
-                      placeholder="08xxxxxxxx"
+                      placeholder="Nama lengkap"
+                      value={qcName}
+                      onChange={(e) => setQcName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Nomor WhatsApp</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="08xxxxxxxxxx"
                       value={qcPhone}
                       onChange={(e) => setQcPhone(e.target.value)}
                     />
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Alamat Lengkap *</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      placeholder="Alamat pelanggan"
-                      value={qcAddress}
-                      onChange={(e) => setQcAddress(e.target.value)}
-                      required
-                    />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Alamat Pelanggan *</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Alamat lengkap / jalan / RT RW"
+                    value={qcAddress}
+                    onChange={(e) => setQcAddress(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Kategori Domisili Pelanggan</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.25rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                      <input
+                        type="radio"
+                        name="qcTier"
+                        value="kedaung"
+                        checked={qcTier === 'kedaung'}
+                        onChange={() => setQcTier('kedaung')}
+                      />
+                      🏠 Warga Kedaung
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
+                      <input
+                        type="radio"
+                        name="qcTier"
+                        value="umum"
+                        checked={qcTier === 'umum'}
+                        onChange={() => setQcTier('umum')}
+                      />
+                      🚚 Luar Kedaung
+                    </label>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.75rem' }}>
                   <button type="button" className="btn btn-secondary" style={{ padding: '0.4rem 0.85rem', fontSize: '0.8rem' }} onClick={() => setShowQuickCustomer(false)}>
                     Batal
                   </button>
@@ -584,17 +730,76 @@ export default function Transactions({ userProfile }) {
                 <select
                   className="form-control"
                   value={customerId}
-                  onChange={(e) => setCustomerId(e.target.value)}
+                  onChange={handleCustomerSelect}
                   required
                   disabled={showQuickCustomer}
                 >
                   <option value="">-- Pilih Pelanggan --</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.phone || 'tidak ada no telp'}) - {c.address}
-                    </option>
-                  ))}
+                  {customers.map((c) => {
+                    const cTier = extractCustomerTier(c);
+                    return (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.phone || 'No Telp -'}) - [{cTier === 'kedaung' ? 'Warga Kedaung' : 'Luar Kedaung'}] - {c.address}
+                      </option>
+                    );
+                  })}
                 </select>
+              </div>
+
+              {/* Customer Tier / Price Category Toggle */}
+              <div className="form-group" style={{ backgroundColor: 'rgba(0,0,0,0.02)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.4rem' }}>
+                  <Tag size={14} color="var(--primary)" /> Kategori Tarif untuk Transaksi Ini:
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: '0.5rem 0.75rem',
+                      border: `1.5px solid ${customerTier === 'kedaung' ? 'var(--success)' : 'var(--border-color)'}`,
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: customerTier === 'kedaung' ? 'var(--success-glow)' : 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: customerTier === 'kedaung' ? '600' : 'normal',
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="transCustomerTier"
+                      value="kedaung"
+                      checked={customerTier === 'kedaung'}
+                      onChange={() => setCustomerTier('kedaung')}
+                    />
+                    <span>🏠 Khusus Warga Kedaung</span>
+                  </label>
+
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: '0.5rem 0.75rem',
+                      border: `1.5px solid ${customerTier === 'umum' ? 'var(--primary)' : 'var(--border-color)'}`,
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: customerTier === 'umum' ? 'var(--primary-glow)' : 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: customerTier === 'umum' ? '600' : 'normal',
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="transCustomerTier"
+                      value="umum"
+                      checked={customerTier === 'umum'}
+                      onChange={() => setCustomerTier('umum')}
+                    />
+                    <span>🚚 Luar Kedaung</span>
+                  </label>
+                </div>
               </div>
 
               {/* Service & Package */}
@@ -602,9 +807,9 @@ export default function Transactions({ userProfile }) {
                 <div className="form-group">
                   <label className="form-label">Jenis Layanan (Kecepatan)</label>
                   <select className="form-control" value={service} onChange={(e) => setService(e.target.value)}>
-                    <option value="reguler">Reguler (3-4 Hari)</option>
+                    <option value="reguler">Reguler (3 - 4 Hari)</option>
                     <option value="express">Express (1 Hari)</option>
-                    <option value="express_kilat">Express Kilat (Hari yang sama)</option>
+                    <option value="express_kilat">Express Kilat (&lt; 1 Hari)</option>
                   </select>
                 </div>
 
@@ -614,7 +819,6 @@ export default function Transactions({ userProfile }) {
                     <option value="cuci_setrika">Cuci Setrika</option>
                     <option value="cuci_lipat">Cuci Lipat</option>
                     <option value="setrika_saja">Setrika Saja</option>
-                    <option value="cuci_saja">Cuci Saja (Hanya Cuci)</option>
                   </select>
                 </div>
               </div>
@@ -631,7 +835,7 @@ export default function Transactions({ userProfile }) {
                       checked={priceMode === 'per_kg'}
                       onChange={() => setPriceMode('per_kg')}
                     />
-                    Dihitung per kg
+                    Dihitung per kg (Otomatis)
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9rem' }}>
                     <input
@@ -641,7 +845,7 @@ export default function Transactions({ userProfile }) {
                       checked={priceMode === 'per_satuan'}
                       onChange={() => setPriceMode('per_satuan')}
                     />
-                    Dihitung per satuan/item
+                    Dihitung per satuan/item (Manual)
                   </label>
                 </div>
               </div>
@@ -660,15 +864,18 @@ export default function Transactions({ userProfile }) {
                       onChange={(e) => setWeight(e.target.value)}
                       required={priceMode === 'per_kg'}
                       min={0.01}
+                      autoFocus
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Harga Layanan per kg</label>
+                    <label className="form-label">
+                      Tarif per kg ({customerTier === 'kedaung' ? 'Kedaung' : 'Luar Kedaung'})
+                    </label>
                     <input
                       type="text"
                       className="form-control"
-                      style={{ backgroundColor: 'rgba(0,0,0,0.02)', fontWeight: 'bold' }}
-                      value={formatRupiah(unitPrice)}
+                      style={{ backgroundColor: 'rgba(0,0,0,0.03)', fontWeight: 'bold', color: 'var(--primary)' }}
+                      value={`${formatRupiah(unitPrice)} / kg`}
                       disabled
                     />
                   </div>
@@ -680,7 +887,7 @@ export default function Transactions({ userProfile }) {
                     <input
                       type="text"
                       className="form-control"
-                      placeholder="Contoh: 1 Bedcover besar, 2 sepatu kulit"
+                      placeholder="Contoh: 1 Bedcover besar, 2 jaket kulit"
                       value={itemDetails}
                       onChange={(e) => setItemDetails(e.target.value)}
                       required={priceMode === 'per_satuan'}
@@ -702,13 +909,13 @@ export default function Transactions({ userProfile }) {
               )}
 
               {/* Final Calculations & Payment */}
-              <div className="card" style={{ backgroundColor: 'var(--primary-glow)', border: '1px solid hsl(var(--p-h) var(--p-s) var(--p-l) / 0.3)', padding: '1rem', marginTop: '1.5rem', marginBottom: '1.5rem' }}>
+              <div className="card" style={{ backgroundColor: 'var(--primary-glow)', border: '1px solid hsl(var(--p-h) var(--p-s) var(--p-l) / 0.3)', padding: '1rem', marginTop: '1.25rem', marginBottom: '1.25rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Estimasi Tanggal Selesai</span>
                     <h4 style={{ margin: 0, fontSize: '1rem' }}>
                       {(() => {
-                        const estDays = priceList[service]?.estimation_days || 0;
+                        const estDays = SERVICES[service]?.durationDays ?? 3;
                         const date = new Date();
                         date.setDate(date.getDate() + estDays);
                         return date.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -725,8 +932,8 @@ export default function Transactions({ userProfile }) {
               <div className="form-group">
                 <label className="form-label">Status Pembayaran</label>
                 <select className="form-control" value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)}>
-                  <option value="belum_lunas">Belum Lunas (Bayar Belakangan)</option>
-                  <option value="lunas">Lunas (Bayar Sekarang)</option>
+                  <option value="belum_lunas">Belum Lunas (Bayar Saat Ambil)</option>
+                  <option value="lunas">Lunas (Bayar di Awal)</option>
                 </select>
               </div>
 
@@ -746,7 +953,7 @@ export default function Transactions({ userProfile }) {
       {/* 2. TRANSACTION DETAIL & CONTROL PANEL MODAL */}
       {showDetailModal && selectedTx && (
         <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '600px' }}>
+          <div className="modal-content" style={{ maxWidth: '620px' }}>
             <div className="modal-header">
               <h3>Detail Resi: {selectedTx.receipt_number}</h3>
               <button
@@ -757,23 +964,27 @@ export default function Transactions({ userProfile }) {
               </button>
             </div>
 
-            {/* Printable Area Simulator */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }} className="grid-cols-1-3">
-                
+
                 {/* General Laundry Info */}
                 <div style={{ gridColumn: 'span 2' }}>
                   <h4 style={{ marginBottom: '0.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.25rem' }}>
-                    Informasi Pengerjaan
+                    Informasi Transaksi & Cucian
                   </h4>
                   <table style={{ width: '100%', fontSize: '0.85rem' }}>
                     <tbody>
                       <tr>
                         <td style={{ fontWeight: '600', padding: '0.25rem 0', width: '120px' }}>Pelanggan:</td>
-                        <td>{selectedTx.customers?.name || 'Umum'}</td>
+                        <td>
+                          <strong>{selectedTx.customers?.name || 'Umum'}</strong>{' '}
+                          <span className="badge badge-primary" style={{ fontSize: '0.7rem' }}>
+                            {getCustomerTierShortLabel(extractCustomerTier(selectedTx.customers))}
+                          </span>
+                        </td>
                       </tr>
                       <tr>
-                        <td style={{ fontWeight: '600', padding: '0.25rem 0' }}>Telepon:</td>
+                        <td style={{ fontWeight: '600', padding: '0.25rem 0' }}>Nomor WhatsApp:</td>
                         <td>{selectedTx.customers?.phone || '-'}</td>
                       </tr>
                       <tr>
@@ -784,14 +995,14 @@ export default function Transactions({ userProfile }) {
                         <tr>
                           <td style={{ fontWeight: '600', padding: '0.25rem 0' }}>Patokan Rumah:</td>
                           <td style={{ fontStyle: 'italic', color: 'var(--text-secondary)' }}>
-                            {selectedTx.customers.location_description}
+                            {getCleanLocationDescription(selectedTx.customers.location_description)}
                           </td>
                         </tr>
                       )}
                       <tr>
-                        <td style={{ fontWeight: '600', padding: '0.25rem 0' }}>Layanan / Paket:</td>
-                        <td style={{ fontWeight: '600' }}>
-                          {getServiceLabel(selectedTx.service)} ({getPackageLabel(selectedTx.package)})
+                        <td style={{ fontWeight: '600', padding: '0.25rem 0' }}>Layanan & Paket:</td>
+                        <td style={{ fontWeight: '600', color: 'var(--primary)' }}>
+                          {getServiceLabel(selectedTx.service)} — {getPackageLabel(selectedTx.package)}
                         </td>
                       </tr>
                       <tr>
@@ -805,14 +1016,14 @@ export default function Transactions({ userProfile }) {
                         </td>
                       </tr>
                       <tr>
-                        <td style={{ fontWeight: '600', padding: '0.25rem 0' }}>Kasir Melayani:</td>
+                        <td style={{ fontWeight: '600', padding: '0.25rem 0' }}>Kasir:</td>
                         <td>{selectedTx.profiles?.name || 'Kasir'}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
 
-                {/* Photo & Map links if available */}
+                {/* Photo & Map links */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {selectedTx.customers?.foto_rumah_url ? (
                     <div>
@@ -821,7 +1032,7 @@ export default function Transactions({ userProfile }) {
                         <img
                           src={selectedTx.customers.foto_rumah_url}
                           alt="Foto Rumah"
-                          style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}
+                          style={{ width: '100%', height: '90px', objectFit: 'cover', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}
                         />
                       </a>
                     </div>
@@ -833,7 +1044,7 @@ export default function Transactions({ userProfile }) {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="btn btn-secondary"
-                      style={{ fontSize: '0.75rem', padding: '0.5rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
+                      style={{ fontSize: '0.75rem', padding: '0.4rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}
                     >
                       <MapPin size={12} /> Buka Google Maps
                     </a>
@@ -849,25 +1060,25 @@ export default function Transactions({ userProfile }) {
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
                   <span>
                     {selectedTx.price_mode === 'per_kg'
-                      ? `Timbangan: ${Number(selectedTx.weight).toFixed(2)} kg @ ${formatRupiah(selectedTx.unit_price)}`
+                      ? `Timbangan: ${Number(selectedTx.weight).toFixed(2)} kg @ ${formatRupiah(selectedTx.unit_price)}/kg`
                       : `Detail Satuan: ${selectedTx.item_details || '-'}`}
                   </span>
-                  <span style={{ fontWeight: 'bold' }}>{formatRupiah(selectedTx.total_price)}</span>
+                  <span style={{ fontWeight: '800', fontSize: '1.1rem', color: 'var(--primary)' }}>{formatRupiah(selectedTx.total_price)}</span>
                 </div>
-                
+
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-app)', padding: '0.75rem', borderRadius: 'var(--radius-sm)' }}>
                   <div>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Status Pengerjaan</span>
                     <div style={{ display: 'flex', gap: '0.25rem', marginTop: '0.25rem' }}>
                       <select
                         className="form-control"
-                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', width: '150px' }}
+                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', width: '160px' }}
                         value={selectedTx.status}
                         onChange={(e) => handleUpdateStatus(selectedTx.id, e.target.value)}
                       >
                         <option value="belum_diproses">Belum Diproses</option>
-                        <option value="diproses">Diproses</option>
-                        <option value="selesai">Selesai</option>
+                        <option value="diproses">Sedang Diproses</option>
+                        <option value="selesai">Selesai (Siap Diambil)</option>
                         <option value="sudah_diambil">Sudah Diambil</option>
                       </select>
                     </div>
@@ -890,21 +1101,160 @@ export default function Transactions({ userProfile }) {
                 </div>
               </div>
 
-              {/* Actions & Printing */}
-              <div className="modal-footer" style={{ marginTop: '0.5rem', padding: '0.75rem 0 0' }}>
+              {/* Actions & WhatsApp & Printing */}
+              <div className="modal-footer" style={{ marginTop: '0.5rem', padding: '0.75rem 0 0', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <button
+                  onClick={() => handleOpenWhatsAppModal(selectedTx, selectedTx.status === 'selesai' ? 'cucian_selesai' : 'konfirmasi_nota')}
+                  className="btn-whatsapp"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginRight: 'auto' }}
+                >
+                  <MessageCircle size={16} /> Notifikasi WhatsApp
+                </button>
+
                 <button
                   onClick={() => handlePrintHTML(selectedTx)}
                   className="btn btn-secondary"
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
                 >
-                  <Printer size={16} /> Cetak (Browser / PDF)
+                  <Printer size={15} /> Cetak (Browser / PDF)
                 </button>
                 <button
                   onClick={() => handlePrintBT(selectedTx)}
                   className="btn btn-primary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                >
+                  <Printer size={15} /> Cetak Thermal (Bluetooth)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. WHATSAPP NOTIFICATION & TEMPLATE MODAL */}
+      {showWaModal && waTx && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '580px' }}>
+            <div className="modal-header" style={{ borderBottomColor: '#25D366' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#25D366', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <MessageCircle size={18} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem' }}>Kirim WhatsApp Pelanggan</h3>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    Resi: {waTx.receipt_number} — {waTx.customers?.name || 'Pelanggan'}
+                  </span>
+                </div>
+              </div>
+              <button
+                style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-muted)' }}
+                onClick={() => setShowWaModal(false)}
+              >
+                &times;
+              </button>
+            </div>
+
+            <div>
+              {/* Phone Input */}
+              <div className="form-group" style={{ marginBottom: '1rem' }}>
+                <label className="form-label">Nomor WhatsApp Pelanggan</label>
+                <div style={{ position: 'relative' }}>
+                  <Smartphone size={16} style={{ position: 'absolute', left: '10px', top: '12px', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    className="form-control"
+                    style={{ paddingLeft: '35px' }}
+                    placeholder="Contoh: 08123456789 atau 628123456789"
+                    value={waPhone}
+                    onChange={(e) => setWaPhone(e.target.value)}
+                  />
+                </div>
+                {waPhone && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem', display: 'block' }}>
+                    Terkonversi ke format WA: <code>{formatWhatsAppPhone(waPhone)}</code>
+                  </span>
+                )}
+              </div>
+
+              {/* Template Select Tabs */}
+              <div className="form-group" style={{ marginBottom: '1rem' }}>
+                <label className="form-label">Pilih Template Pesan</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  {WA_TEMPLATES.map((tmpl) => (
+                    <button
+                      key={tmpl.id}
+                      type="button"
+                      onClick={() => handleChangeWaTemplate(tmpl.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0.6rem 0.85rem',
+                        border: `1.5px solid ${waTemplateId === tmpl.id ? '#25D366' : 'var(--border-color)'}`,
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: waTemplateId === tmpl.id ? 'rgba(37, 211, 102, 0.1)' : 'transparent',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all var(--transition-fast)'
+                      }}
+                    >
+                      <span style={{ fontSize: '0.85rem', fontWeight: waTemplateId === tmpl.id ? '600' : 'normal', color: 'var(--text-primary)' }}>
+                        {tmpl.icon} {tmpl.name}
+                      </span>
+                      {waTemplateId === tmpl.id && (
+                        <Check size={16} color="#25D366" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Live Editable Message Preview */}
+              <div className="form-group" style={{ marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                  <label className="form-label" style={{ margin: 0 }}>Preview & Edit Isi Pesan</label>
+                  <button
+                    type="button"
+                    onClick={handleCopyWaMessage}
+                    className="btn btn-secondary"
+                    style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                  >
+                    {waCopied ? <Check size={12} color="var(--success)" /> : <Copy size={12} />}
+                    {waCopied ? 'Tersalin!' : 'Salin Pesan'}
+                  </button>
+                </div>
+                <textarea
+                  className="form-control"
+                  rows={8}
+                  style={{
+                    fontFamily: 'inherit',
+                    fontSize: '0.85rem',
+                    lineHeight: '1.45',
+                    backgroundColor: 'var(--bg-app)',
+                    border: '1px solid var(--border-color)',
+                  }}
+                  value={waCustomMessage}
+                  onChange={(e) => setWaCustomMessage(e.target.value)}
+                />
+              </div>
+
+              <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowWaModal(false)}
+                >
+                  Tutup
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-whatsapp"
+                  onClick={handleSendWhatsApp}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                 >
-                  <Printer size={16} /> Cetak (Thermal Bluetooth)
+                  <Send size={15} /> Buka di WhatsApp
                 </button>
               </div>
             </div>

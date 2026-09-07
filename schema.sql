@@ -23,6 +23,7 @@ CREATE TABLE public.customers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     phone TEXT,
+    customer_tier TEXT NOT NULL DEFAULT 'kedaung', -- 'kedaung' (khusus) or 'umum' (luar kedaung / mm ambil)
     address TEXT NOT NULL,
     location_description TEXT,
     latitude DOUBLE PRECISION,
@@ -213,7 +214,11 @@ CREATE POLICY "Allow delete transactions for admins only"
 
 -- 5. SEED DATA
 INSERT INTO public.price_list (service, price_per_kg, estimation_days) VALUES
-('reguler', 7000, 3),
+('reguler', 8000, 3),
 ('express', 10000, 1),
-('express_kilat', 15000, 0)
+('express_kilat', 12000, 0)
 ON CONFLICT (service) DO NOTHING;
+
+-- 6. MIGRATION QUERY (Jalankan di SQL Editor jika database sudah pernah dibuat sebelumnya)
+-- ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS customer_tier TEXT DEFAULT 'kedaung';
+

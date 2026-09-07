@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabaseClient';
-import { Search, MapPin, Camera, User, Phone, Home, FileText, CheckCircle, ShieldAlert, Edit2, Map, Plus } from 'lucide-react';
+import { Search, MapPin, Camera, User, Phone, Home, FileText, CheckCircle, ShieldAlert, Edit2, Map, Plus, Tag } from 'lucide-react';
+import {
+  extractCustomerTier,
+  formatLocationDescriptionWithTier,
+  getCleanLocationDescription,
+  CUSTOMER_TIERS,
+  getCustomerTierLabel,
+  getCustomerTierShortLabel,
+} from '../utils/pricing';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -133,6 +141,7 @@ export default function Customers() {
   const [selectedId, setSelectedId] = useState(null);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [tier, setTier] = useState('kedaung');
   const [address, setAddress] = useState('');
   const [locDescription, setLocDescription] = useState('');
   const [latitude, setLatitude] = useState(-6.200000);
@@ -170,6 +179,7 @@ export default function Customers() {
     setSelectedId(null);
     setName('');
     setPhone('');
+    setTier('kedaung');
     setAddress('');
     setLocDescription('');
     // Try to get current position for map initial center
@@ -197,8 +207,9 @@ export default function Customers() {
     setSelectedId(customer.id);
     setName(customer.name);
     setPhone(customer.phone || '');
+    setTier(extractCustomerTier(customer));
     setAddress(customer.address);
-    setLocDescription(customer.location_description || '');
+    setLocDescription(getCleanLocationDescription(customer.location_description));
     setLatitude(customer.latitude || -6.200000);
     setLongitude(customer.longitude || 106.816666);
     setImageFile(null);
@@ -267,32 +278,50 @@ export default function Customers() {
         finalImageUrl = urlData.publicUrl;
       }
 
+      const formattedDesc = formatLocationDescriptionWithTier(locDescription, tier);
+
       const customerPayload = {
         name,
         phone,
         address,
-        location_description: locDescription,
+        location_description: formattedDesc,
         latitude,
         longitude,
         foto_rumah_url: finalImageUrl,
       };
 
+      // Try updating/inserting with customer_tier, fall back gracefully if column doesn't exist yet
       if (selectedId) {
         // Edit Customer
-        const { error } = await supabase
+        let updateRes = await supabase
           .from('customers')
-          .update(customerPayload)
+          .update({ ...customerPayload, customer_tier: tier })
           .eq('id', selectedId);
 
-        if (error) throw error;
+        if (updateRes.error) {
+          // Fallback without customer_tier column
+          const retry = await supabase
+            .from('customers')
+            .update(customerPayload)
+            .eq('id', selectedId);
+          if (retry.error) throw retry.error;
+        }
+
         setSuccessMsg(`Pelanggan ${name} berhasil diperbarui.`);
       } else {
         // Create Customer
-        const { error } = await supabase
+        let insertRes = await supabase
           .from('customers')
-          .insert([customerPayload]);
+          .insert([{ ...customerPayload, customer_tier: tier }]);
 
-        if (error) throw error;
+        if (insertRes.error) {
+          // Fallback without customer_tier column
+          const retry = await supabase
+            .from('customers')
+            .insert([customerPayload]);
+          if (retry.error) throw retry.error;
+        }
+
         setSuccessMsg(`Pelanggan ${name} berhasil ditambahkan.`);
       }
 
@@ -359,7 +388,7 @@ export default function Customers() {
               <thead>
                 <tr>
                   <th>Foto</th>
-                  <th>Nama</th>
+                  <th>Nama & Kategori</th>
                   <th>Telepon</th>
                   <th>Alamat</th>
                   <th>Patokan / Detail</th>
@@ -367,51 +396,62 @@ export default function Customers() {
                 </tr>
               </thead>
               <tbody>
-                {customers.map((c) => (
-                  <tr key={c.id}>
-                    <td>
-                      {c.foto_rumah_url ? (
-                        <img
-                          src={c.foto_rumah_url}
-                          alt={`Rumah ${c.name}`}
-                          style={{ width: '50px', height: '50px', objectFit: 'cover', borderRadius: 'var(--radius-sm)' }}
-                        />
-                      ) : (
-                        <div style={{ width: '50px', height: '50px', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyCentert: 'center', color: 'var(--text-muted)' }}>
-                          <Home size={18} style={{ margin: 'auto' }} />
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ fontWeight: '600' }}>{c.name}</td>
-                    <td>{c.phone || '-'}</td>
-                    <td>{c.address}</td>
-                    <td style={{ fontSize: '0.8rem', maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {c.location_description || '-'}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button
-                          onClick={() => handleOpenEdit(c)}
-                          className="btn btn-secondary"
-                          style={{ padding: '0.35rem 0.5rem', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-                        >
-                          <Edit2 size={12} /> Ubah
-                        </button>
-                        {c.latitude && c.longitude && (
-                          <a
-                            href={`https://www.google.com/maps/search/?api=1&query=${c.latitude},${c.longitude}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="btn btn-secondary"
-                            style={{ padding: '0.35rem 0.5rem', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem', borderColor: 'var(--success)', color: 'var(--success)' }}
-                          >
-                            <MapPin size={12} /> Peta
-                          </a>
+                {customers.map((c) => {
+                  const customerTier = extractCustomerTier(c);
+                  return (
+                    <tr key={c.id}>
+                      <td>
+                        {c.foto_rumah_url ? (
+                          <img
+                            src={c.foto_rumah_url}
+                            alt={`Rumah ${c.name}`}
+                            style={{ width: '50px', height: '50px', objectFit: 'cover', borderRadius: 'var(--radius-sm)' }}
+                          />
+                        ) : (
+                          <div style={{ width: '50px', height: '50px', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+                            <Home size={18} style={{ margin: 'auto' }} />
+                          </div>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: '600' }}>{c.name}</div>
+                        <span
+                          className={`badge ${customerTier === 'kedaung' ? 'badge-success' : 'badge-primary'}`}
+                          style={{ fontSize: '0.7rem', padding: '0.15rem 0.45rem', marginTop: '0.25rem', display: 'inline-block' }}
+                        >
+                          {customerTier === 'kedaung' ? '🏠 Warga Kedaung' : '🚚 Luar Kedaung'}
+                        </span>
+                      </td>
+                      <td>{c.phone || '-'}</td>
+                      <td>{c.address}</td>
+                      <td style={{ fontSize: '0.8rem', maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {getCleanLocationDescription(c.location_description) || '-'}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <button
+                            onClick={() => handleOpenEdit(c)}
+                            className="btn btn-secondary"
+                            style={{ padding: '0.35rem 0.5rem', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                          >
+                            <Edit2 size={12} /> Ubah
+                          </button>
+                          {c.latitude && c.longitude && (
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${c.latitude},${c.longitude}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-secondary"
+                              style={{ padding: '0.35rem 0.5rem', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem', borderColor: 'var(--success)', color: 'var(--success)' }}
+                            >
+                              <MapPin size={12} /> Peta
+                            </a>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -451,7 +491,7 @@ export default function Customers() {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Nomor Telepon</label>
+                  <label className="form-label">Nomor Telepon (WhatsApp)</label>
                   <div style={{ position: 'relative' }}>
                     <Phone size={16} style={{ position: 'absolute', left: '10px', top: '12px', color: 'var(--text-muted)' }} />
                     <input
@@ -463,6 +503,64 @@ export default function Customers() {
                       onChange={(e) => setPhone(e.target.value)}
                     />
                   </div>
+                </div>
+              </div>
+
+              {/* Customer Tier / Category Selector */}
+              <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Tag size={15} color="var(--primary)" /> Kategori Pelanggan (Penentuan Tarif Laundry)
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.35rem' }}>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.6rem',
+                      padding: '0.65rem 0.85rem',
+                      border: `1.5px solid ${tier === 'kedaung' ? 'var(--success)' : 'var(--border-color)'}`,
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: tier === 'kedaung' ? 'var(--success-glow)' : 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: tier === 'kedaung' ? '600' : 'normal',
+                      transition: 'all var(--transition-fast)'
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="customerTier"
+                      value="kedaung"
+                      checked={tier === 'kedaung'}
+                      onChange={() => setTier('kedaung')}
+                    />
+                    <span>🏠 Warga Kedaung (Khusus)</span>
+                  </label>
+
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.6rem',
+                      padding: '0.65rem 0.85rem',
+                      border: `1.5px solid ${tier === 'umum' ? 'var(--primary)' : 'var(--border-color)'}`,
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: tier === 'umum' ? 'var(--primary-glow)' : 'transparent',
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      fontWeight: tier === 'umum' ? '600' : 'normal',
+                      transition: 'all var(--transition-fast)'
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="customerTier"
+                      value="umum"
+                      checked={tier === 'umum'}
+                      onChange={() => setTier('umum')}
+                    />
+                    <span>🚚 Luar Kedaung</span>
+                  </label>
                 </div>
               </div>
 

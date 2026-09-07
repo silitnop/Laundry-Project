@@ -476,6 +476,47 @@ textarea {
   background-color: #dc2626;
 }
 
+.btn-whatsapp {
+  background-color: #25D366;
+  color: #ffffff;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all var(--transition-fast);
+  box-shadow: 0 2px 8px rgba(37, 211, 102, 0.3);
+}
+
+.btn-whatsapp:hover {
+  background-color: #20ba5a;
+  box-shadow: 0 4px 14px rgba(37, 211, 102, 0.45);
+  transform: translateY(-1px);
+}
+
+.btn-whatsapp-icon {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid #25D366;
+  background-color: rgba(37, 211, 102, 0.08);
+  color: #128C7E;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.btn-whatsapp-icon:hover {
+  background-color: #25D366;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(37, 211, 102, 0.35);
+}
+
 .btn-icon-only {
   width: 2.25rem;
   height: 2.25rem;
@@ -705,6 +746,19 @@ textarea {
   grid-template-columns: 1fr;
   gap: 0.75rem;
   margin-bottom: 1rem;
+}
+
+.search-date-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+@media (min-width: 1024px) {
+  .search-date-row {
+    grid-template-columns: 2fr 1fr;
+  }
 }
 
 @media (min-width: 768px) {

@@ -1,31 +1,4 @@
-// Utility for printing laundry receipts via Web Bluetooth (ESC/POS) and HTML fallback.
-
-const formatRupiah = (val) => {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
-    minimumFractionDigits: 0,
-  }).format(val);
-};
-
-const getServiceLabel = (service) => {
-  switch (service) {
-    case 'reguler': return 'Reguler';
-    case 'express': return 'Express';
-    case 'express_kilat': return 'Express Kilat';
-    default: return service;
-  }
-};
-
-const getPackageLabel = (pkg) => {
-  switch (pkg) {
-    case 'cuci_setrika': return 'Cuci Setrika';
-    case 'cuci_lipat': return 'Cuci Lipat';
-    case 'setrika_saja': return 'Setrika Saja';
-    case 'cuci_saja': return 'Cuci Saja';
-    default: return pkg;
-  }
-};
+import { formatRupiah, getServiceLabel, getPackageLabel, getCustomerTierShortLabel } from './pricing.js';
 
 const getPaymentStatusLabel = (status) => {
   return status === 'lunas' ? 'LUNAS' : 'BELUM LUNAS';
@@ -69,11 +42,13 @@ const generateEscPosBytes = (tx) => {
     ALIGN_CENTER,
     BOLD_ON,
     DOUBLE_SIZE,
-    encoder.encode('LAUNDRIA\n'),
+    encoder.encode('Berkah Laundry\n'),
     NORMAL_SIZE,
     encoder.encode('Bersih, Rapi, Wangi\n'),
-    encoder.encode('Jl. Merdeka Raya No. 12\n'),
-    encoder.encode('Telp: 0812-3456-789\n'),
+    encoder.encode('Jl. Masjid Darussalam No.66\n'),
+    encoder.encode('RT.007/RW.04, Kedaung, Pamulang\n'),
+    encoder.encode('Tangsel, Banten 15415\n'),
+    encoder.encode('Telp: 0817-6908-709\n'),
     BOLD_OFF,
     encoder.encode('================================\n'), // 32 chars
     ALIGN_LEFT,
@@ -162,7 +137,7 @@ export const printToBluetooth = async (transaction) => {
     });
 
     const server = await device.gatt.connect();
-    
+
     // Attempt standard service UUID first, fall back to known services if needed
     let service;
     try {
@@ -189,7 +164,7 @@ export const printToBluetooth = async (transaction) => {
 
     const dataBytes = generateEscPosBytes(transaction);
     await writeBleChunks(writeCharacteristic, dataBytes);
-    
+
     // Disconnect safely
     device.gatt.disconnect();
     return true;
@@ -266,10 +241,12 @@ export const printToHTML = (transaction) => {
     </head>
     <body>
       <div class="text-center">
-        <span class="bold title">LAUNDRIA</span><br/>
+        <span class="bold title">Berkah Laundry</span><br/>
         <span>Bersih, Rapi, Wangi</span><br/>
-        <span>Jl. Merdeka Raya No. 12</span><br/>
-        <span>Telp: 0812-3456-789</span>
+        <span style="font-size: 9px; line-height: 1.2; display: block; margin: 2px 0;">
+          Jl. Masjid Darussalam parkos No.66, RT.007/RW.04, Kedaung, Kec. Pamulang, Kota Tangerang Selatan, Banten 15415
+        </span>
+        <span>Telp: 0817-6908-709</span>
       </div>
       
       <div class="divider"></div>
